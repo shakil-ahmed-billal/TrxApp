@@ -1,0 +1,29 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Transaction {
+  id              Int      @id @default(autoincrement())
+  trxId           String   @unique @map("trx_id")
+  provider        String   @default("bKash")
+  amount          Decimal  @db.Decimal(10, 2)
+  senderNumber    String   @map("sender_number")
+  balance         Decimal  @db.Decimal(10, 2)
+  transactionDate String   @map("transaction_date")
+  transactionTime String   @map("transaction_time")
+  rawSms          String   @map("raw_sms") @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("transactions")
+}
