@@ -1,16 +1,17 @@
-import { ThemedText } from "@/components/themed-text";
-import { ThemedView } from "@/components/themed-view";
-import apiClient, { Transaction } from "@/src/services/apiClient";
-import smsListener from "@/src/services/smsListener";
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from 'react';
 import {
-  ActivityIndicator,
-  Platform,
-  RefreshControl,
+  View,
+  Text,
   ScrollView,
   StyleSheet,
-  View,
-} from "react-native";
+  ActivityIndicator,
+  RefreshControl,
+  Platform,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { MaterialIcons } from '@expo/vector-icons';
+import apiClient, { Transaction } from '@/src/services/apiClient';
+import smsListener from '@/src/services/smsListener';
 
 export default function TransactionsScreen() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -19,31 +20,33 @@ export default function TransactionsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [listenerStatus, setListenerStatus] = useState(false);
 
-  // Load transactions from API
   const loadTransactions = async () => {
     try {
       setError(null);
       const result = await apiClient.getAllTransactions();
 
       if (result.success && result.data) {
-        setTransactions(result.data);
+        // Sort by date (newest first)
+        const sortedTransactions = result.data.sort(
+          (a, b) => new Date(b.createdAt || '').getTime() - new Date(a.createdAt || '').getTime()
+        );
+        setTransactions(sortedTransactions);
       } else {
-        setError(result.message || "Failed to load transactions");
+        setError(result.message || 'Failed to load transactions');
       }
     } catch (err: any) {
-      setError(err.message || "An error occurred");
+      setError(err.message || 'An error occurred');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  // Initial load
   useEffect(() => {
     loadTransactions();
 
     // Initialize SMS listener on Android
-    if (Platform.OS === "android") {
+    if (Platform.OS === 'android') {
       initializeSmsListener();
     }
 
@@ -54,280 +57,283 @@ export default function TransactionsScreen() {
 
     return () => {
       clearInterval(interval);
-      if (Platform.OS === "android") {
+      if (Platform.OS === 'android') {
         smsListener.stopListening();
       }
     };
   }, []);
 
-  // Initialize SMS listener
   const initializeSmsListener = async () => {
     try {
       const started = await smsListener.startListening();
       setListenerStatus(started);
       if (started) {
-        // Reload transactions when new SMS is received
-        // The listener service handles saving, so we refresh the list
         setTimeout(() => {
           loadTransactions();
         }, 2000);
       }
     } catch (err) {
-      console.error("Failed to initialize SMS listener:", err);
+      console.error('Failed to initialize SMS listener:', err);
     }
   };
 
-  // Pull to refresh
   const onRefresh = () => {
     setRefreshing(true);
     loadTransactions();
   };
 
-  // Format date for display
-  const formatDate = (date: string, time: string) => {
-    return `${date} ${time}`;
+  const getTransactionType = (tx: Transaction): string => {
+    // Determine transaction type based on rawSms content
+    const rawSms = tx.rawSms?.toLowerCase() || '';
+    if (rawSms.includes('received') || rawSms.includes('received from')) {
+      return 'Received Money';
+    } else if (rawSms.includes('cash out') || rawSms.includes('sent')) {
+      return 'Cash Out';
+    } else if (rawSms.includes('payment')) {
+      return 'Payment';
+    } else if (rawSms.includes('send money')) {
+      return 'Send Money';
+    }
+    return 'Transaction';
   };
 
-  // Format amount for display
-  const formatAmount = (amount: number) => {
-    return `Tk ${amount.toFixed(2)}`;
+  const getTransactionIcon = (type: string) => {
+    switch (type) {
+      case 'Received Money':
+        return 'arrow-downward';
+      case 'Cash Out':
+      case 'Send Money':
+        return 'arrow-upward';
+      case 'Payment':
+        return 'payment';
+      default:
+        return 'swap-horiz';
+    }
+  };
+
+  const getTransactionColor = (type: string) => {
+    switch (type) {
+      case 'Received Money':
+        return { bg: '#dbeafe', color: '#2563eb' };
+      case 'Cash Out':
+      case 'Send Money':
+        return { bg: '#fee2e2', color: '#dc2626' };
+      case 'Payment':
+        return { bg: '#dcfce7', color: '#16a34a' };
+      default:
+        return { bg: '#f3f4f6', color: '#6b7280' };
+    }
+  };
+
+  const formatDate = (dateString?: string): string => {
+    if (!dateString) return '';
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    } catch {
+      return dateString;
+    }
+  };
+
+  const formatAmount = (amount: number): string => {
+    return `৳${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
   if (loading) {
     return (
-      <ThemedView style={styles.container}>
-        <View style={styles.centerContent}>
-          <ActivityIndicator size="large" />
-          <ThemedText style={styles.loadingText}>
-            Loading transactions...
-          </ThemedText>
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#e91e63" />
+          <Text style={styles.loadingText}>Loading transactions...</Text>
         </View>
-      </ThemedView>
+      </SafeAreaView>
     );
   }
 
   return (
-    <ThemedView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView
         style={styles.scrollView}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         {/* Header */}
         <View style={styles.header}>
-          <ThemedText type="title">Transactions</ThemedText>
-          <View style={styles.statusRow}>
-            <View
-              style={[
-                styles.statusIndicator,
-                listenerStatus && styles.statusActive,
-              ]}
-            />
-            <ThemedText style={styles.statusText}>
-              {listenerStatus ? "Listening for SMS" : "SMS Listener Off"}
-            </ThemedText>
-          </View>
+          <Text style={styles.headerTitle}>Transactions</Text>
+          <Text style={styles.headerSubtitle}>History from Database</Text>
         </View>
 
         {/* Error Message */}
         {error && (
           <View style={styles.errorContainer}>
-            <ThemedText style={styles.errorText}>{error}</ThemedText>
+            <Text style={styles.errorText}>{error}</Text>
           </View>
         )}
-
-        {/* Transaction Count */}
-        <View style={styles.countContainer}>
-          <ThemedText style={styles.countText}>
-            Total: {transactions.length} transaction
-            {transactions.length !== 1 ? "s" : ""}
-          </ThemedText>
-        </View>
 
         {/* Transactions List */}
         {transactions.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <ThemedText style={styles.emptyText}>
-              No transactions found
-            </ThemedText>
-            <ThemedText style={styles.emptySubtext}>
+            <Text style={styles.emptyText}>No transactions found</Text>
+            <Text style={styles.emptySubtext}>
               Transactions will appear here when bKash SMS messages are received
-            </ThemedText>
+            </Text>
           </View>
         ) : (
-          transactions.map((transaction) => (
-            <View key={transaction.id} style={styles.transactionCard}>
-              <View style={styles.transactionHeader}>
-                <View style={styles.transactionHeaderLeft}>
-                  <ThemedText type="defaultSemiBold" style={styles.amountText}>
-                    {formatAmount(transaction.amount)}
-                  </ThemedText>
-                  <ThemedText style={styles.providerText}>
-                    {transaction.provider}
-                  </ThemedText>
-                </View>
-                <View style={styles.transactionHeaderRight}>
-                  <ThemedText style={styles.dateText}>
-                    {formatDate(
-                      transaction.transactionDate,
-                      transaction.transactionTime
-                    )}
-                  </ThemedText>
-                </View>
-              </View>
+          <View style={styles.transactionsContainer}>
+            {transactions.map((tx) => {
+              const type = getTransactionType(tx);
+              const icon = getTransactionIcon(type);
+              const colors = getTransactionColor(type);
+              const isOutgoing = type === 'Cash Out' || type === 'Send Money';
 
-              <View style={styles.transactionDetails}>
-                <View style={styles.detailRow}>
-                  <ThemedText style={styles.detailLabel}>From:</ThemedText>
-                  <ThemedText style={styles.detailValue}>
-                    {transaction.senderNumber}
-                  </ThemedText>
+              return (
+                <View key={tx.id} style={styles.transactionCard}>
+                  <View style={[styles.transactionIcon, { backgroundColor: colors.bg }]}>
+                    <MaterialIcons name={icon as any} size={24} color={colors.color} />
+                  </View>
+                  <View style={styles.transactionContent}>
+                    <Text style={styles.transactionType}>{type}</Text>
+                    <Text style={styles.transactionDetails} numberOfLines={1}>
+                      {tx.senderNumber || tx.recipient || 'N/A'} • TrxID: {tx.trxId || tx.trxID || 'N/A'}
+                    </Text>
+                  </View>
+                  <View style={styles.transactionAmount}>
+                    <Text style={[styles.amountText, isOutgoing ? styles.amountOutgoing : styles.amountIncoming]}>
+                      {isOutgoing ? '-' : '+'} {formatAmount(tx.amount)}
+                    </Text>
+                    <Text style={styles.transactionDate}>{formatDate(tx.createdAt)}</Text>
+                  </View>
                 </View>
-                <View style={styles.detailRow}>
-                  <ThemedText style={styles.detailLabel}>TrxID:</ThemedText>
-                  <ThemedText style={styles.detailValue}>
-                    {transaction.trxId}
-                  </ThemedText>
-                </View>
-                <View style={styles.detailRow}>
-                  <ThemedText style={styles.detailLabel}>Balance:</ThemedText>
-                  <ThemedText style={styles.detailValue}>
-                    {formatAmount(transaction.balance)}
-                  </ThemedText>
-                </View>
-              </View>
-            </View>
-          ))
+              );
+            })}
+          </View>
         )}
-
-        {/* Bottom spacing */}
-        <View style={styles.bottomSpacing} />
       </ScrollView>
-    </ThemedView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#6b7280',
   },
   scrollView: {
     flex: 1,
   },
-  centerContent: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 16,
-  },
-  loadingText: {
-    marginTop: 16,
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 100,
   },
   header: {
-    padding: 20,
-    paddingBottom: 12,
+    marginBottom: 24,
   },
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 8,
-    gap: 8,
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 4,
   },
-  statusIndicator: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: "#999",
-  },
-  statusActive: {
-    backgroundColor: "#4CAF50",
-  },
-  statusText: {
+  headerSubtitle: {
     fontSize: 14,
+    color: '#6b7280',
   },
   errorContainer: {
-    margin: 20,
+    backgroundColor: '#fee2e2',
     padding: 16,
-    borderRadius: 8,
-    backgroundColor: "rgba(255, 0, 0, 0.1)",
+    borderRadius: 12,
+    marginBottom: 16,
   },
   errorText: {
-    color: "#F44336",
-    textAlign: "center",
-  },
-  countContainer: {
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-  },
-  countText: {
+    color: '#dc2626',
     fontSize: 14,
-    opacity: 0.7,
+    textAlign: 'center',
+  },
+  transactionsContainer: {
+    gap: 16,
+  },
+  transactionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+    gap: 16,
+  },
+  transactionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  transactionContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+  transactionType: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  transactionDetails: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  transactionAmount: {
+    alignItems: 'flex-end',
+  },
+  amountText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  amountIncoming: {
+    color: '#16a34a',
+  },
+  amountOutgoing: {
+    color: '#dc2626',
+  },
+  transactionDate: {
+    fontSize: 10,
+    color: '#9ca3af',
+    fontWeight: '500',
   },
   emptyContainer: {
     padding: 40,
-    alignItems: "center",
+    alignItems: 'center',
   },
   emptyText: {
     fontSize: 18,
+    fontWeight: '600',
+    color: '#111827',
     marginBottom: 8,
   },
   emptySubtext: {
     fontSize: 14,
-    opacity: 0.7,
-    textAlign: "center",
-  },
-  transactionCard: {
-    marginHorizontal: 20,
-    marginBottom: 16,
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: "rgba(0, 0, 0, 0.05)",
-    borderWidth: 1,
-    borderColor: "rgba(0, 0, 0, 0.1)",
-  },
-  transactionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 12,
-  },
-  transactionHeaderLeft: {
-    flex: 1,
-  },
-  transactionHeaderRight: {
-    alignItems: "flex-end",
-  },
-  amountText: {
-    fontSize: 24,
-    marginBottom: 4,
-  },
-  providerText: {
-    fontSize: 14,
-    opacity: 0.7,
-  },
-  dateText: {
-    fontSize: 12,
-    opacity: 0.6,
-  },
-  transactionDetails: {
-    gap: 8,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(0, 0, 0, 0.1)",
-  },
-  detailRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  detailLabel: {
-    fontSize: 14,
-    opacity: 0.7,
-  },
-  detailValue: {
-    fontSize: 14,
-  },
-  bottomSpacing: {
-    height: 20,
+    color: '#6b7280',
+    textAlign: 'center',
   },
 });
